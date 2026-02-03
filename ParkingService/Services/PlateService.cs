@@ -65,7 +65,24 @@ public class PlateService : IPlateService
             // Use endpoint path from configuration - default to "zogsoolSdkService" to match your implementation
             string endpoint = _endpointPath ?? "zogsoolSdkService";
 
+            // Serialize and log the payload to verify dun is included
+            string payloadJson = System.Text.Json.JsonSerializer.Serialize(plateData);
+            Console.WriteLine($"=== PlateService: Sending payload to {_backendBaseUrl}{endpoint}");
+            Console.WriteLine($"=== PlateService: Payload JSON = {payloadJson}");
             _logger.LogInformation("Sending plate data to backend: {BackendUrl}{EndpointPath}", _backendBaseUrl, endpoint);
+            _logger.LogInformation("PlateService payload (including dun): {Payload}", payloadJson);
+            
+            // Check if dun field exists in the payload
+            if (payloadJson.Contains("\"dun\""))
+            {
+                Console.WriteLine("✓ DUN field found in payload JSON");
+                _logger.LogInformation("DUN field confirmed in payload");
+            }
+            else
+            {
+                Console.WriteLine("✗ WARNING: DUN field NOT found in payload JSON!");
+                _logger.LogWarning("DUN field NOT found in payload JSON: {Payload}", payloadJson);
+            }
 
             // Follow EXACT pattern from your working controller: use PostAsJsonAsync (System.Text.Json)
             // This matches the working CreateProductAsync method exactly
@@ -73,14 +90,17 @@ public class PlateService : IPlateService
             
             if (response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Plate data sent successfully to {Endpoint}", endpoint);
+                Console.WriteLine($"✓ PlateService: Data sent successfully to {endpoint}");
+                _logger.LogInformation("Plate data sent successfully to {Endpoint}. Payload included dun: {Payload}", endpoint, payloadJson);
                 return true;
             }
             else
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Failed to send plate data to {Endpoint}. Status: {Status}, Response: {Response}", 
-                    endpoint, response.StatusCode, errorContent);
+                Console.WriteLine($"✗ PlateService: Failed to send data. Status={response.StatusCode}, Response={errorContent}");
+                Console.WriteLine($"✗ PlateService: Payload that failed: {payloadJson}");
+                _logger.LogWarning("Failed to send plate data to {Endpoint}. Status: {Status}, Response: {Response}, Payload: {Payload}", 
+                    endpoint, response.StatusCode, errorContent, payloadJson);
                 
                 // If endpoint was empty and got 404, suggest configuring endpoint path
                 if (string.IsNullOrEmpty(endpoint) && response.StatusCode == System.Net.HttpStatusCode.NotFound)

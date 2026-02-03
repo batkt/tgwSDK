@@ -78,22 +78,16 @@ public class CameraPollingBackgroundService : BackgroundService
                 _token ?? string.Empty, 
                 cancellationToken);
 
-            if (result.Success && result.Plate != null)
+            // Only log when a plate is actually processed (not duplicates, not empty)
+            if (result.Success && result.Plate != null && !result.IsDuplicate)
             {
-                if (result.IsDuplicate)
-                {
-                    _logger.LogInformation("Duplicate plate ignored: {Plate} from camera {CameraIp} (within debounce period)", 
-                        result.Plate, cameraIp);
-                }
-                else
-                {
-                    _logger.LogInformation("✓ Processed plate: {Plate} from camera {CameraIp}. Backend sent: {BackendSent}, Gate opened: {GateOpened}", 
-                        result.Plate, cameraIp, result.BackendSent, result.GateOpened);
-                }
+                _logger.LogInformation("✓ Plate: {Plate} | Camera: {CameraIp} | Backend: {BackendSent} | Gate: {GateOpened}", 
+                    result.Plate, cameraIp, result.BackendSent ? "OK" : "FAIL", result.GateOpened ? "OPENED" : "NO");
             }
-            else if (!result.Success)
+            // Only log errors, not normal "no plate" cases
+            else if (!result.Success && !string.IsNullOrEmpty(result.Message) && result.Message != "No plate recognized")
             {
-                _logger.LogWarning("Failed to process plate from camera {CameraIp}: {Message}", cameraIp, result.Message);
+                _logger.LogWarning("Error processing camera {CameraIp}: {Message}", cameraIp, result.Message);
             }
         }
         catch (Exception ex)

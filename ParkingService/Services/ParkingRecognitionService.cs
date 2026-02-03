@@ -79,10 +79,10 @@ public class ParkingRecognitionService : IParkingRecognitionService
         
         // Load static camera IPs from configuration
         var cameraIPsSection = configuration.GetSection("ParkingService:CameraIPs");
-        _configuredCameraIPs = cameraIPsSection.Get<List<string>>() ?? new List<string> { "192.168.1.11", "192.168.1.12", "192.168.1.14" };
+        _configuredCameraIPs = cameraIPsSection.Get<List<string>>() ?? new List<string> { "172.16.19.180", "172.16.19.178", "172.16.19.179" };
         
         _cameraUsername = configuration["ParkingService:CameraUsername"] ?? "admin";
-        _cameraPassword = configuration["ParkingService:CameraPassword"] ?? "Tgw123456";
+        _cameraPassword = configuration["ParkingService:CameraPassword"] ?? "Tgw123456.";
         
         _logger.LogInformation("ParkingRecognitionService initialized with {CameraCount} static camera(s): {CameraIPs}", 
             _configuredCameraIPs.Count, string.Join(", ", _configuredCameraIPs));
@@ -265,12 +265,11 @@ public class ParkingRecognitionService : IParkingRecognitionService
         
         if (body.data == null || string.IsNullOrWhiteSpace(body.data.plate))
         {
-            _logger.LogDebug("Camera {CameraIp} returned no plate data (data is null or plate is empty)", cameraIp);
+            // Don't log - this is normal when no car is detected
             return null;
         }
 
-        _logger.LogDebug("Camera {CameraIp} recognition successful: plate={Plate}, timestamp={Timestamp}", 
-            cameraIp, body.data.plate, body.data.timestamp);
+        // Don't log successful recognition here - will be logged when processed
 
         return new CameraRecognitionResult(body.data.plate, body.data.timestamp);
     }
@@ -359,7 +358,7 @@ public class ParkingRecognitionService : IParkingRecognitionService
             
             if (recognitionResult == null || string.IsNullOrWhiteSpace(recognitionResult.Plate))
             {
-                _logger.LogWarning("No recognition result found for camera {CameraIp}", cameraIp);
+                // Don't log - this is normal when no car is detected
                 return new RecognitionAndSendResult
                 {
                     Success = false,
@@ -375,8 +374,7 @@ public class ParkingRecognitionService : IParkingRecognitionService
             // This prevents processing the same plate multiple times within the debounce period
             if (!_plateTrackingService.ShouldProcessPlate(cameraIp, recognitionResult.Plate, recognitionResult.Timestamp))
             {
-                _logger.LogInformation("Duplicate plate detected and ignored: {Plate} from camera {CameraIp} (within debounce period)", 
-                    recognitionResult.Plate, cameraIp);
+                // Don't log duplicates - too verbose
                 return new RecognitionAndSendResult
                 {
                     Success = true,
@@ -389,15 +387,20 @@ public class ParkingRecognitionService : IParkingRecognitionService
                 };
             }
 
-            _logger.LogInformation("Processing new plate: {Plate} from camera {CameraIp}", recognitionResult.Plate, cameraIp);
+            // Clean plate number - remove "???" if present
+            string cleanPlate = (recognitionResult.Plate ?? string.Empty).Replace("???", "");
+            
+            // Log car recognition with cleaned plate
+            _logger.LogInformation("🚗 Car recognized: Plate={Plate} | Camera={CameraIp} | Time={Time}", 
+                cleanPlate, cameraIp, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
 
             // Step 3: Update display screen with plate information (Sambar)
             DateTime entranceTime = DateTime.Now;
             string textOne = "Zaisan";
-            string textTwo = recognitionResult.Plate ?? string.Empty;
+            string textTwo = cleanPlate;
             string textThree = entranceTime.ToString("yyyy-MM-dd HH:mm:ss");
             string textFour = "Parkease";
-            string voiceContent = $"Welcome {recognitionResult.Plate}, have a good day"; // Add voice content
+            string voiceContent = $"Welcome {cleanPlate}, have a good day"; // Add voice content
             
             // Update display screen via camera's HTTP API at http://127.0.0.1:8000/swp-cloud/api/camera/display
             try
@@ -422,23 +425,26 @@ public class ParkingRecognitionService : IParkingRecognitionService
 
             // Step 4: Prepare plate data following your working controller EXACTLY
             // Match the exact structure from your working CreateProductAsync - NO Color field
+            // Use cleaned plate number (without "???")
             var plateData = new
             {
-                mashiniiDugaar = recognitionResult.Plate ?? string.Empty,
+                mashiniiDugaar = cleanPlate,
                 CAMERA_IP = cameraIp ?? string.Empty,
                 burtgelOgnoo = entranceTime.ToString("yyyy-MM-ddTHH:mm:ss")
             };
 
-            _logger.LogInformation("Prepared plate data: {PlateData}. Sending to backend API...", 
-                System.Text.Json.JsonSerializer.Serialize(plateData));
-
             // Step 5: Send to backend API
             bool backendSuccess = await _plateService.SendPlateDataAsync(plateData, token);
             
-            _logger.LogInformation("Backend API response for plate {Plate}: Success={Success}", 
-                recognitionResult.Plate, backendSuccess);
+            // Only log failures
+            if (!backendSuccess)
+            {
+                _logger.LogWarning("Backend API failed for plate {Plate} from camera {CameraIp}", 
+                    cleanPlate, cameraIp);
+            }
 
             // Step 6: Record that this plate has been processed (only if we attempted to send)
+            // Use original plate for tracking (to match duplicates correctly)
             _plateTrackingService.RecordProcessedPlate(cameraIp, recognitionResult.Plate, recognitionResult.Timestamp);
 
             // Step 7: If backend fails, open gate locally (offline mode)
@@ -458,7 +464,7 @@ public class ParkingRecognitionService : IParkingRecognitionService
             {
                 Success = true,
                 Message = backendSuccess ? "Plate sent to backend successfully" : "Backend failed, gate opened locally",
-                Plate = recognitionResult.Plate,
+                Plate = cleanPlate, // Return cleaned plate in result
                 Timestamp = recognitionResult.Timestamp,
                 BackendSent = backendSuccess,
                 GateOpened = gateOpened,

@@ -24,7 +24,7 @@ public interface IParkingRecognitionService
     /// <summary>
     /// Call the camera display screen control API.
     /// </summary>
-    Task<bool> DisplayScreenAsync(string cameraIp, int port, string textOne, string textTwo, string textThree, string textFour, string voiceContent, CancellationToken cancellationToken = default);
+    Task<bool> DisplayScreenAsync(string cameraIp, int port, string textOne, string textTwo, string textThree, string textFour, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Complete flow: Get recognition result, send to backend API, and open gate if needed.
@@ -291,7 +291,7 @@ public class ParkingRecognitionService : IParkingRecognitionService
         return body is { respCode: "00000" };
     }
 
-    public async Task<bool> DisplayScreenAsync(string cameraIp, int port, string textOne, string textTwo, string textThree, string textFour, string voiceContent, CancellationToken cancellationToken = default)
+    public async Task<bool> DisplayScreenAsync(string cameraIp, int port, string textOne, string textTwo, string textThree, string textFour, CancellationToken cancellationToken = default)
     {
         // URL: http://127.0.0.1:8000/swp-cloud/api/camera/display
         // Method: POST (changed from GET due to 405 MethodNotAllowed error)
@@ -305,7 +305,6 @@ public class ParkingRecognitionService : IParkingRecognitionService
             textTwo = textTwo,
             textThree = textThree,
             textFour = textFour,
-            voiceContent = voiceContent,
             ip = cameraIp
         };
 
@@ -399,13 +398,19 @@ public class ParkingRecognitionService : IParkingRecognitionService
             string textOne = "Zaisan";
             string textTwo = cleanPlate;
             string textThree = entranceTime.ToString("yyyy-MM-dd HH:mm:ss");
+            
+            // For Camera 180 group (Exit/Payment), do NOT show the date as it confuses the user with the payment amount
+            if (cameraIp == "172.16.19.180" || cameraIp == "172.16.19.178" || cameraIp == "172.16.19.179")
+            {
+                textThree = " ";
+            }
+
             string textFour = "Parkease";
-            string voiceContent = $"Welcome {cleanPlate}, have a good day"; // Add voice content
             
             // Update display screen via camera's HTTP API at http://127.0.0.1:8000/swp-cloud/api/camera/display
             try
             {
-                bool displaySuccess = await DisplayScreenAsync(cameraIp, port, textOne, textTwo, textThree, textFour, voiceContent, cancellationToken);
+                bool displaySuccess = await DisplayScreenAsync(cameraIp, port, textOne, textTwo, textThree, textFour, cancellationToken);
                 if (displaySuccess)
                 {
                     _logger.LogInformation("Display screen updated for camera {CameraIp}: {Text1} | {Text2} | {Text3} | {Text4}", 
@@ -430,7 +435,8 @@ public class ParkingRecognitionService : IParkingRecognitionService
             {
                 mashiniiDugaar = cleanPlate,
                 CAMERA_IP = cameraIp ?? string.Empty,
-                burtgelOgnoo = entranceTime.ToString("yyyy-MM-ddTHH:mm:ss")
+                burtgelOgnoo = entranceTime.ToString("yyyy-MM-ddTHH:mm:ss"),
+                dun = "0"
             };
 
             // Step 5: Send to backend API
@@ -528,7 +534,6 @@ public class CameraDisplayRequest
     public string textTwo { get; set; } = string.Empty;
     public string textThree { get; set; } = string.Empty;
     public string textFour { get; set; } = string.Empty;
-    public string voiceContent { get; set; } = string.Empty;
     public string ip { get; set; } = string.Empty;
 }
 

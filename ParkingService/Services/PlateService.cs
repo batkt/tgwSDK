@@ -70,7 +70,7 @@ public class PlateService : IPlateService
             Console.WriteLine($"=== PlateService: Sending payload to {_backendBaseUrl}{endpoint}");
             Console.WriteLine($"=== PlateService: Payload JSON = {payloadJson}");
             _logger.LogInformation("Sending plate data to backend: {BackendUrl}{EndpointPath}", _backendBaseUrl, endpoint);
-            _logger.LogInformation("PlateService payload (including dun): {Payload}", payloadJson);
+            _logger.LogInformation("PlateService payload: {Payload}", payloadJson);
             
             // Check if dun field exists in the payload
             if (payloadJson.Contains("\"dun\""))
@@ -91,7 +91,7 @@ public class PlateService : IPlateService
             if (response.IsSuccessStatusCode)
             {
                 Console.WriteLine($"✓ PlateService: Data sent successfully to {endpoint}");
-                _logger.LogInformation("Plate data sent successfully to {Endpoint}. Payload included dun: {Payload}", endpoint, payloadJson);
+                _logger.LogInformation("Plate data sent successfully to {Endpoint}. Payload: {Payload}", endpoint, payloadJson);
                 return true;
             }
             else

@@ -77,7 +77,6 @@ public class apiController : ControllerBase
         public string textTwo { get; set; } = string.Empty;
         public string textThree { get; set; } = string.Empty;
         public string textFour { get; set; } = string.Empty;
-        public string voiceContent { get; set; } = string.Empty;
         public string ip { get; set; } = string.Empty;
     }
 
@@ -125,7 +124,8 @@ public class apiController : ControllerBase
         {
             mashiniiDugaar = request.Plate,
             CAMERA_IP = ip,
-            burtgelOgnoo = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss")
+            burtgelOgnoo = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
+            dun = "0"
         };
 
         if (PlateService != null)
@@ -434,7 +434,8 @@ public class apiController : ControllerBase
                             mashiniiDugaar = CarNO,
                             CAMERA_IP = tukhainCamera,
                             burtgelOgnoo = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
-                            Color = Color
+                            Color = Color,
+                            dun = "0"
                         };
                         Console.WriteLine("mashinii Dugaar burtgegdlee:" + a.mashiniiDugaar);
                         
@@ -536,7 +537,8 @@ public class apiController : ControllerBase
                             mashiniiDugaar = CarNO,
                             CAMERA_IP = tukhainCamera,
                             burtgelOgnoo = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
-                            Color = Color
+                            Color = Color,
+                            dun = "0"
                         };
                         Console.WriteLine("mashinii Dugaar burtgegdlee:" + a.mashiniiDugaar);
                         
@@ -944,130 +946,96 @@ public class apiController : ControllerBase
         }
     }
 
-    // Display Screen Control API - Sambar implementation
+    // Helper method to handle display screen SDK calls
+    private async Task<DisplayScreenResponse> DisplayScreenLogic(string ip, string t1, string t2, string t3, string t4)
+    {
+        try
+        {
+            int handle = cameraHandleAvya(ip);
+            if (handle < 0)
+            {
+                // Auto-init if needed
+                if (handleList == null || handleList.Count == 0)
+                {
+                    await Kholboy();
+                    handle = cameraHandleAvya(ip);
+                }
+
+                if (handle < 0)
+                {
+                    return new DisplayScreenResponse 
+                    { 
+                        respCode = "10000", 
+                        respMsg = $"Camera not found for IP: {ip}" 
+                    };
+                }
+            }
+
+            // Text Display
+            // Convert strings to byte arrays (UTF-8)
+            // Use GB2312 or Default for Chinese/special chars if needed, but UTF8/Default usually works for these SDKs
+            byte[] text1Bytes = Encoding.Default.GetBytes(t1 ?? string.Empty);
+            byte[] text2Bytes = Encoding.Default.GetBytes(t2 ?? string.Empty);
+            byte[] text3Bytes = Encoding.Default.GetBytes(t3 ?? string.Empty);
+            byte[] text4Bytes = Encoding.Default.GetBytes(t4 ?? string.Empty);
+
+            int iRetText = AlprSDK.AlprSDK_Trans2Screen(
+                handle, 0, 
+                1, text1Bytes, 
+                2, text2Bytes, 
+                3, text3Bytes, 
+                4, text4Bytes
+            );
+            
+            GetErrorLogger()?.LogSdkCall("AlprSDK_Trans2Screen", handle, iRetText, 
+                new Dictionary<string, object> 
+                { 
+                    ["IP"] = ip,
+                    ["T1"] = t1, ["T2"] = t2, ["T3"] = t3, ["T4"] = t4 
+                });
+
+            // Voice Playback
+            if (iRetText == 0)
+            {
+                return new DisplayScreenResponse { respCode = "00000", respMsg = "success" };
+            }
+            else
+            {
+                return new DisplayScreenResponse { respCode = "10000", respMsg = $"SDK Error: {iRetText}" };
+            }
+        }
+        catch (Exception ex)
+        {
+            GetErrorLogger()?.LogCriticalError("DISPLAY", "LogicError", ex);
+            return new DisplayScreenResponse { respCode = "10000", respMsg = $"Error: {ex.Message}" };
+        }
+    }
+
+    // Display Screen Control API
     [HttpPost("camera/display")]
     public async Task<ActionResult<DisplayScreenResponse>> DisplayScreen([FromBody] DisplayScreenRequest request)
     {
         try
         {
-            // Validate required fields
-            if (string.IsNullOrWhiteSpace(request.textOne) ||
-                string.IsNullOrWhiteSpace(request.textTwo) ||
-                string.IsNullOrWhiteSpace(request.textThree) ||
-                string.IsNullOrWhiteSpace(request.textFour) ||
-                string.IsNullOrWhiteSpace(request.ip))
+            if (string.IsNullOrWhiteSpace(request.ip))
             {
-                return BadRequest(new DisplayScreenResponse 
-                { 
-                    respCode = "10000", 
-                    respMsg = "All text fields and ip are required" 
-                });
+                return BadRequest(new DisplayScreenResponse { respCode = "10000", respMsg = "IP is required" });
             }
 
-            // Get camera handle from IP
-            int handle = cameraHandleAvya(request.ip);
-            if (handle < 0)  // Changed from <= 0 to < 0 because handle 0 is valid (first camera)
-            {
-                Console.WriteLine($"Camera handle not found or invalid for IP: {request.ip}, handle: {handle}");
-                
-                // Check if handleList is null or empty (SDK not initialized)
-                if (handleList == null || handleList.Count == 0)
-                {
-                    Console.WriteLine("DisplayScreen: handleList is null or empty. Attempting auto-initialization...");
-                    await Kholboy();
-                    
-                    // Re-check handle after initialization
-                    handle = cameraHandleAvya(request.ip);
-                    if (handle < 0)
-                    {
-                        return Ok(new DisplayScreenResponse 
-                        { 
-                            respCode = "10000", 
-                            respMsg = $"Camera not found for IP: {request.ip} even after auto-initialization." 
-                        });
-                    }
-                }
-                
-                return Ok(new DisplayScreenResponse 
-                { 
-                    respCode = "10000", 
-                    respMsg = $"Camera not found for IP: {request.ip}. Camera may not be initialized. Call GET /api/kholboy to initialize cameras first." 
-                });
-            }
-
-            // Convert text strings to byte arrays (UTF-8 encoding)
-            byte[] text1Bytes = System.Text.Encoding.UTF8.GetBytes(request.textOne);
-            byte[] text2Bytes = System.Text.Encoding.UTF8.GetBytes(request.textTwo);
-            byte[] text3Bytes = System.Text.Encoding.UTF8.GetBytes(request.textThree);
-            byte[] text4Bytes = System.Text.Encoding.UTF8.GetBytes(request.textFour);
-
-            // Call SDK to display text on screen
-            // Parameters: handle, type (0 = normal text), row positions (1-4), text byte arrays
-            int iRet = AlprSDK.AlprSDK_Trans2Screen(
-                handle, 
-                type: 0,  // Display type (0 = normal text display)
-                row1: 1, 
-                text1: text1Bytes, 
-                row2: 2, 
-                text2: text2Bytes, 
-                row3: 3, 
-                text3: text3Bytes, 
-                row4: 4, 
-                text4: text4Bytes
+            var result = await DisplayScreenLogic(
+                request.ip, 
+                request.textOne, 
+                request.textTwo, 
+                request.textThree, 
+                request.textFour
             );
 
-            GetErrorLogger()?.LogSdkCall("AlprSDK_Trans2Screen", handle, iRet, 
-                new Dictionary<string, object> 
-                { 
-                    ["IP"] = request.ip,
-                    ["Text1"] = request.textOne,
-                    ["Text2"] = request.textTwo,
-                    ["Text3"] = request.textThree,
-                    ["Text4"] = request.textFour
-                });
-
-            if (iRet == 0)
-            {
-                Console.WriteLine($"Display screen updated successfully for camera {request.ip}");
-                // Note: voiceContent is not handled by Trans2Screen SDK method
-                // Voice functionality may need separate SDK call or HTTP API
-                if (!string.IsNullOrWhiteSpace(request.voiceContent))
-                {
-                    Console.WriteLine($"Voice content provided but not sent via SDK: {request.voiceContent}");
-                }
-                
-                return Ok(new DisplayScreenResponse 
-                { 
-                    respCode = "00000", 
-                    respMsg = "success" 
-                });
-            }
-            else
-            {
-                Console.WriteLine($"Failed to update display screen for camera {request.ip}, error code: {iRet}");
-                GetErrorLogger()?.LogCriticalError("DISPLAY_SCREEN", "AlprSDK_Trans2Screen", null,
-                    new Dictionary<string, object> 
-                    { 
-                        ["IP"] = request.ip, 
-                        ["Result"] = iRet 
-                    });
-                
-                return Ok(new DisplayScreenResponse 
-                { 
-                    respCode = "10000", 
-                    respMsg = $"Failed to update display screen, SDK error: {iRet}" 
-                });
-            }
+            return Ok(result);
         }
         catch (Exception error)
         {
             Console.WriteLine($"DisplayScreen Aldaa: {error.ToString()}");
-            GetErrorLogger()?.LogCriticalError("DISPLAY_SCREEN", "DisplayScreen", error);
-            return Ok(new DisplayScreenResponse 
-            { 
-                respCode = "10000", 
-                respMsg = $"Error: {error.Message}" 
-            });
+            return Ok(new DisplayScreenResponse { respCode = "10000", respMsg = $"Error: {error.Message}" });
         }
     }
 
@@ -1076,218 +1044,83 @@ public class apiController : ControllerBase
     {
         try
         {
-            // Log incoming parameters including dun
             Console.WriteLine($"=== sambarDeerGargay called: IP={ip}, Text={text}, Dun={dun}");
             _logger?.LogInformation("sambarDeerGargay called: IP={IP}, Text={Text}, Dun={Dun}", ip, text, dun);
-            GetErrorLogger()?.LogCriticalOperation("SAMBAR", "sambarDeerGargay_Called", "STARTED",
-                new Dictionary<string, object> 
-                { 
-                    ["IP"] = ip ?? "null",
-                    ["Text"] = text ?? "null",
-                    ["Dun"] = dun ?? "null",
-                    ["DunIsEmpty"] = string.IsNullOrWhiteSpace(dun),
-                    ["DunLength"] = dun?.Length ?? 0
-                });
             
-            // Auto-initialize if handleList is null or empty
-            if (handleList == null || handleList.Count == 0)
-            {
-                Console.WriteLine("sambarDeerGargay: handleList is null or empty. Attempting auto-initialization...");
-                await Kholboy();
-            }
-
-            if (ip == "172.16.17.34" || ip == "172.16.17.35" || ip == "172.16.17.36" || 
-                ip == "172.16.19.180" || ip == "172.16.19.178" || ip == "172.16.19.179")
-            {
-                byte[] HexStr1 = Encoding.Default.GetBytes(text ?? string.Empty);
-                byte[] HexStr2 = Encoding.Default.GetBytes(dun ?? string.Empty);
-                
-                int handle = cameraHandleAvya(ip);
-                if (handle > -1)
-                {
-                    int khariu = AlprSDK.AlprSDK_Trans2Screen(handle, 0, 1, HexStr1, 1, HexStr2, 1, HexStr1, 1, HexStr1);
-                    Console.WriteLine("trans2screen callback: " + khariu);
-                    
-                    GetErrorLogger()?.LogSdkCall("AlprSDK_Trans2Screen_Sambar", handle, khariu, 
-                        new Dictionary<string, object> 
-                        { 
-                            ["IP"] = ip,
-                            ["Text"] = text,
-                            ["Dun"] = dun
-                        });
-                }
-            }
-            
-            // Check if dun is a payment amount (numeric) or time (HH:mm:ss format)
-            // Only send to zogsoolSdkService if dun is a payment amount, not time
-            bool isTimeFormat = false;
+            // Check dun type
             bool isPaymentAmount = false;
-            
+            bool isTimeFormat = false;
             if (!string.IsNullOrWhiteSpace(dun))
             {
-                // Check if it's time format (HH:mm:ss) - e.g., "14:30:25"
                 if (System.Text.RegularExpressions.Regex.IsMatch(dun, @"^\d{1,2}:\d{2}:\d{2}$"))
-                {
                     isTimeFormat = true;
-                    Console.WriteLine($"DUN is TIME format: '{dun}' - will NOT send to zogsoolSdkService");
-                    _logger?.LogInformation("DUN is time format '{Dun}' - skipping zogsoolSdkService send", dun);
-                }
-                // Check if it's a numeric payment amount
-                else if (decimal.TryParse(dun, out decimal paymentAmount))
-                {
+                else if (decimal.TryParse(dun, out _))
                     isPaymentAmount = true;
-                    Console.WriteLine($"DUN is PAYMENT amount: '{dun}' ({paymentAmount}) - will send to zogsoolSdkService");
-                    _logger?.LogInformation("DUN is payment amount '{Dun}' ({Amount}) - will send to zogsoolSdkService", dun, paymentAmount);
-                }
-                else
-                {
-                    Console.WriteLine($"DUN format unknown: '{dun}' - will NOT send to zogsoolSdkService");
-                    _logger?.LogWarning("DUN format unknown '{Dun}' - skipping zogsoolSdkService send", dun);
-                }
             }
-            
-            // Send plate data with payment (dun) to zogsoolSdkService ONLY if dun is a payment amount
+
+            // 1. Send to zogsoolSdkService if it's a payment amount
             if (PlateService != null && !string.IsNullOrWhiteSpace(text) && isPaymentAmount)
             {
+                // ... (Keep existing plate service logic) ...
                 try
                 {
-                    // Clean plate number - remove "???" if present
                     string cleanPlate = (text ?? string.Empty).Replace("???", "");
-                    
                     if (!string.IsNullOrWhiteSpace(cleanPlate))
                     {
-                        // Log dun value before constructing plate data
-                        Console.WriteLine($"DUN value (PAYMENT): '{dun}' (IsNull={dun == null}, IsEmpty={string.IsNullOrEmpty(dun)}, IsWhiteSpace={string.IsNullOrWhiteSpace(dun)}, Length={dun?.Length ?? 0})");
-                        _logger?.LogInformation("DUN value details (PAYMENT): Value='{Dun}', IsNull={IsNull}, IsEmpty={IsEmpty}, IsWhiteSpace={IsWhiteSpace}, Length={Length}", 
-                            dun, dun == null, string.IsNullOrEmpty(dun), string.IsNullOrWhiteSpace(dun), dun?.Length ?? 0);
-                        
-                        // Construct plate data with payment information
                         var plateData = new
                         {
                             mashiniiDugaar = cleanPlate,
                             CAMERA_IP = ip,
                             burtgelOgnoo = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
-                            dun = dun  // Payment amount
+                            dun = dun
                         };
-                        
-                        // Log the complete plate data object including dun
-                        string plateDataJson = JsonConvert.SerializeObject(plateData);
-                        Console.WriteLine($"=== Plate Data to send (with DUN PAYMENT): {plateDataJson}");
-                        Console.WriteLine($"Sending plate data with dun (PAYMENT) to zogsoolSdkService: Plate={cleanPlate}, IP={ip}, Dun={dun}");
-                        _logger?.LogInformation("Sending plate data with payment to zogsoolSdkService: {PlateData}", plateDataJson);
-                        _logger?.LogInformation("Plate data breakdown: mashiniiDugaar={Plate}, CAMERA_IP={IP}, burtgelOgnoo={Date}, dun={Dun}", 
-                            cleanPlate, ip, DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"), dun);
-                        
-                        bool sendSuccess = await PlateService.SendPlateDataAsync(plateData, token);
-                        
-                        if (sendSuccess)
-                        {
-                            Console.WriteLine($"✓ Plate data with dun (PAYMENT) sent successfully to zogsoolSdkService for {cleanPlate}, Dun={dun}");
-                            _logger?.LogInformation("Plate data with payment sent successfully to zogsoolSdkService: Plate={Plate}, Dun={Dun}, DunValue='{DunValue}'", 
-                                cleanPlate, dun, dun ?? "null");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"✗ Failed to send plate data with dun (PAYMENT) to zogsoolSdkService for {cleanPlate}, Dun={dun}");
-                            _logger?.LogWarning("Failed to send plate data with payment to zogsoolSdkService: Plate={Plate}, Dun={Dun}, DunValue='{DunValue}', PlateData={PlateData}", 
-                                cleanPlate, dun, dun ?? "null", plateDataJson);
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine("Plate number is empty after cleaning, skipping zogsoolSdkService send");
+                         _ = PlateService.SendPlateDataAsync(plateData, token);
                     }
                 }
-                catch (Exception sendEx)
+                catch (Exception ex) 
                 {
-                    Console.WriteLine($"Error sending plate data to zogsoolSdkService: {sendEx.Message}");
-                    _logger?.LogError(sendEx, "Error sending plate data with payment to zogsoolSdkService: Plate={Plate}, Dun={Dun}", 
-                        text, dun);
-                    GetErrorLogger()?.LogCriticalError("SAMBAR", "ZogsoolSdkSendError", sendEx,
-                        new Dictionary<string, object> 
-                        { 
-                            ["IP"] = ip,
-                            ["Text"] = text,
-                            ["Dun"] = dun
-                        });
-                    // Don't fail the whole request if zogsoolSdkService send fails
+                    _logger?.LogError(ex, "Error sending to plate service");
                 }
             }
-            else if (isTimeFormat)
+
+            // 2. Update Display
+            string t1 = "Zaisan";
+            string t2 = text ?? "";
+            string t3 = dun ?? "";
+            string t4 = "Parkease";
+
+            // Special handling for 180 camera (or similar) where 'dun' (amount) must be prominent
+            // Use strict IP check for the cameras that need this layout
+            if (ip == "172.16.19.180" || ip == "172.16.19.178" || ip == "172.16.19.179")
             {
-                Console.WriteLine($"DUN is time format '{dun}' - skipping zogsoolSdkService send (only sending payment amounts)");
-                _logger?.LogInformation("Skipping zogsoolSdkService send - DUN is time format '{Dun}', not payment amount", dun);
-            }
-            else if (PlateService == null)
-            {
-                Console.WriteLine($"PlateService is null, cannot send to zogsoolSdkService");
-            }
-            else if (string.IsNullOrWhiteSpace(text))
-            {
-                Console.WriteLine($"Plate text is empty, skipping zogsoolSdkService send");
-            }
-            
-            // After SDK call, POST to the display endpoint
-            try
-            {
-                // Construct display request - map text and dun to appropriate display fields
-                // text is typically the plate number, dun could be amount or time
-                var displayRequest = new DisplayScreenRequest
+                if (isPaymentAmount)
                 {
-                    textOne = "Zaisan",  // Default header
-                    textTwo = text ?? string.Empty,      // Plate number or main text
-                    textThree = dun ?? string.Empty,     // Amount or time
-                    textFour = "Parkease", // Default footer
-                    voiceContent = string.Empty,
-                    ip = ip
-                };
-                
-                // Get base URL from current request
-                var baseUrl = $"{Request.Scheme}://{Request.Host}";
-                var displayUrl = $"{baseUrl}/api/camera/display";
-                
-                // POST to the display endpoint using HttpClient
-                var jsonContent = System.Text.Json.JsonSerializer.Serialize(displayRequest);
-                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-                
-                var response = await client.PostAsync(displayUrl, content);
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    var responseContent = await response.Content.ReadAsStringAsync();
-                    Console.WriteLine($"Sambar display updated successfully for camera {ip}. Response: {responseContent}");
+                    // If payment amount, show it on Row 1 for visibility
+                    t1 = dun;       // Amount on Row 1
+                    t2 = " ";       // Clear Plate
+                    t3 = " ";       // Clear Date/Other
+                    t4 = " ";       // Clear Footer
                 }
                 else
                 {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    Console.WriteLine($"Sambar display update failed for camera {ip}. Status: {response.StatusCode}, Response: {errorContent}");
+                    // Standard display for non-payment (e.g. entry or time)
+                    // If 'dun' is time, show it?
+                    t1 = "Zaisan";
+                    t2 = text;
+                    t3 = dun; // Time or empty
+                    t4 = "Parkease";
                 }
             }
-            catch (Exception displayEx)
-            {
-                Console.WriteLine($"Error posting to display endpoint: {displayEx.Message}");
-                GetErrorLogger()?.LogCriticalError("SAMBAR", "DisplayPostError", displayEx,
-                    new Dictionary<string, object> 
-                    { 
-                        ["IP"] = ip,
-                        ["Text"] = text,
-                        ["Dun"] = dun
-                    });
-                // Don't fail the whole request if display POST fails
-            }
+
+            var result = await DisplayScreenLogic(ip, t1, t2, t3, t4);
             
+            Console.WriteLine($"Sambar display updated for {ip}: {result.respMsg}");
+
             return "Amjilttai";
         }
         catch (Exception error)
         {
             Console.WriteLine("sambar Aldaa: " + error.ToString());
-            GetErrorLogger()?.LogCriticalError("SAMBAR", "sambarDeerGargay", error,
-                new Dictionary<string, object> 
-                { 
-                    ["IP"] = ip,
-                    ["Text"] = text,
-                    ["Dun"] = dun
-                });
             return "aldaa";
         }
     }
